@@ -134,4 +134,109 @@ This tool is for informational purposes only. Please ensure you comply with all 
 If you encounter any issues or have questions, please:
 1. Check the existing issues in the GitHub repository
 2. Create a new issue with detailed information about your problem
-3. Include relevant error messages and your environment details 
+3. Include relevant error messages and your environment details
+
+## Code Examples
+
+### Fetching Large Transactions
+```python
+def get_transactions_page(chain, token_address, page):
+    """Get a single page of transactions"""
+    api_key = ETHERSCAN_API_KEY if chain == 'ethereum' else BSCSCAN_API_KEY
+    base_url = 'https://api.etherscan.io/api' if chain == 'ethereum' else 'https://api.bscscan.com/api'
+    
+    # Get timestamp from 15 minutes ago
+    fifteen_mins_ago = int(time.time()) - (15 * 60)
+    
+    url = (
+        f"{base_url}?module=account&action=tokentx"
+        f"&contractaddress={token_address}"
+        f"&starttime={fifteen_mins_ago}"
+        f"&page={page}"
+        f"&offset=20"  # Transactions per page
+        f"&sort=desc"
+        f"&apikey={api_key}"
+    )
+    
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        
+        if data.get('message') == 'OK' and data.get('status') == '1':
+            return data['result']
+        return []
+    except Exception as e:
+        print(f"Error fetching {chain} page {page}: {str(e)}")
+        return []
+
+def get_large_transactions(chain, token_address):
+    """Get large transactions from Etherscan/BscScan"""
+    print(f"\nFetching transactions for {chain}...")
+    all_transactions = []
+    
+    # Process pages sequentially for better stability
+    for page in range(1, 3):  # Fetch first 2 pages
+        transactions = get_transactions_page(chain, token_address, page)
+        if transactions:
+            all_transactions.extend(transactions)
+    
+    # Filter for transactions > 1M tokens
+    large_txs = [
+        tx for tx in all_transactions 
+        if float(tx['value']) / (10 ** int(tx['tokenDecimal'])) > 1_000_000
+    ]
+    
+    # Sort by value in descending order
+    large_txs.sort(
+        key=lambda x: float(x['value']) / (10 ** int(x['tokenDecimal'])), 
+        reverse=True
+    )
+    
+    return large_txs[:10]  # Return top 10 largest transactions
+```
+
+### Fetching Total Supply
+```python
+def get_supply_from_defillama(token_info):
+    """Get token supply from DefiLlama API"""
+    url = "https://stablecoins.llama.fi/stablecoins?includePrices=true"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        
+        for stablecoin in data['peggedAssets']:
+            # Match by name or symbol
+            if (stablecoin['name'] == token_info['defillama_id'] or 
+                stablecoin['symbol'] == token_info['defillama_id']):
+                return float(stablecoin['circulating']['peggedUSD'])
+        return 0
+    except Exception as e:
+        print(f"Error fetching supply: {str(e)}")
+        return 0
+```
+
+### Transaction Formatting
+```python
+def format_large_transaction(tx, chain):
+    """Format transaction data for display"""
+    value = float(tx['value']) / (10 ** int(tx['tokenDecimal']))
+    timestamp = datetime.fromtimestamp(int(tx['timeStamp']))
+    
+    return (
+        f"{'=' * 100}\n"
+        f"Time: {timestamp.strftime('%Y-%m-%d %H:%M:%S')} | Chain: {chain.upper()}\n"
+        f"Amount: {value:,.2f}\n"
+        f"From: {tx['from']}\n"
+        f"To: {tx['to']}\n"
+        f"Tx Hash: {tx['hash']}\n"
+        f"Block: {tx['blockNumber']}\n"
+        f"{'=' * 100}"
+    )
+```
+
+These code snippets demonstrate:
+- How to fetch and filter large transactions from blockchain explorers
+- How to retrieve total supply data from DefiLlama
+- How to format transaction data for display
+- Error handling and rate limiting implementation
+- Parallel processing of multiple tokens 
